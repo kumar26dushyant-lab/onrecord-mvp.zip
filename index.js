@@ -3,18 +3,16 @@ const express = require('express');
 const axios = require('axios');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 // Parse JSON
 app.use(express.json());
 
-// CORS - Handle manually for all requests (bulletproof method)
+// ✅ CORS (bulletproof, works with Vercel)
 app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Origin', '*'); // OK for now
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    
-    // Handle preflight
+
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
@@ -27,7 +25,8 @@ const jobs = new Map();
 // Akool API Configuration
 const AKOOL_API_KEY = process.env.AKOOL_API_KEY;
 const AKOOL_API_URL = 'https://openapi.akool.com/api/open/v3';
-const DEFAULT_AVATAR_ID = process.env.AKOOL_AVATAR_ID || 'dvp_Tristan_cloth2_1080P';
+const DEFAULT_AVATAR_ID =
+    process.env.AKOOL_AVATAR_ID || 'dvp_Tristan_cloth2_1080P';
 
 // Tone configurations
 const TONE_CONFIG = {
@@ -66,17 +65,18 @@ app.post('/api/generate', async (req, res) => {
         }
 
         if (!AKOOL_API_KEY) {
-            return res.status(500).json({ error: 'API not configured. Contact support.' });
+            return res.status(500).json({ error: 'API not configured' });
         }
 
         const fullScript = wrapMessage(text.trim());
         const toneSettings = TONE_CONFIG[tone] || TONE_CONFIG.serious;
-        const jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
         jobs.set(jobId, {
             status: 'processing',
             createdAt: new Date(),
-            paid: paid
+            paid
         });
 
         const akoolResponse = await axios.post(
@@ -88,44 +88,57 @@ app.post('/api/generate', async (req, res) => {
                 speed: toneSettings.speed,
                 pitch: toneSettings.pitch,
                 background_color: '#1a1a1a',
-                watermark: paid ? null : {
-                    text: WATERMARK_TEXT,
-                    position: 'bottom-left',
-                    font_size: 14,
-                    color: '#ffffff',
-                    opacity: 0.8
-                }
+                watermark: paid
+                    ? null
+                    : {
+                          text: WATERMARK_TEXT,
+                          position: 'bottom-left',
+                          font_size: 14,
+                          color: '#ffffff',
+                          opacity: 0.8
+                      }
             },
             {
                 headers: {
-                    'Authorization': `Bearer ${AKOOL_API_KEY}`,
+                    Authorization: `Bearer ${AKOOL_API_KEY}`,
                     'Content-Type': 'application/json'
                 }
             }
         );
 
-        if (akoolResponse.data && akoolResponse.data.data) {
-            const akoolJobId = akoolResponse.data.data.id || akoolResponse.data.data._id;
-            
-            jobs.set(jobId, { ...jobs.get(jobId), akoolJobId: akoolJobId });
+        const data = akoolResponse.data?.data;
 
-            if (akoolResponse.data.data.video_url) {
-                jobs.set(jobId, {
-                    ...jobs.get(jobId),
-                    status: 'completed',
-                    videoUrl: akoolResponse.data.data.video_url
-                });
-                return res.json({ success: true, jobId, videoUrl: akoolResponse.data.data.video_url });
-            }
-
-            return res.json({ success: true, jobId, message: 'Video generation started' });
+        if (!data) {
+            throw new Error('Invalid Akool response');
         }
 
-        throw new Error('Invalid response from video API');
+        const akoolJobId = data.id || data._id;
+
+        jobs.set(jobId, { ...jobs.get(jobId), akoolJobId });
+
+        if (data.video_url) {
+            jobs.set(jobId, {
+                ...jobs.get(jobId),
+                status: 'completed',
+                videoUrl: data.video_url
+            });
+
+            return res.json({
+                success: true,
+                jobId,
+                videoUrl: data.video_url
+            });
+        }
+
+        return res.json({
+            success: true,
+            jobId,
+            message: 'Video generation started'
+        });
 
     } catch (error) {
         console.error('Generation error:', error.response?.data || error.message);
-        return res.status(500).json({ error: 'Failed to generate video. Please try again.' });
+        return res.status(500).json({ error: 'Failed to generate video' });
     }
 });
 
@@ -140,31 +153,28 @@ app.get('/api/status/:jobId', async (req, res) => {
         }
 
         if (job.status === 'completed' || job.status === 'failed') {
-            return res.json({ status: job.status, videoUrl: job.videoUrl, error: job.error });
+            return res.json(job);
         }
 
         if (job.akoolJobId && AKOOL_API_KEY) {
-            try {
-                const statusResponse = await axios.get(
-                    `${AKOOL_API_URL}/avatar/getVideo/${job.akoolJobId}`,
-                    { headers: { 'Authorization': `Bearer ${AKOOL_API_KEY}` } }
-                );
+            const statusResponse = await axios.get(
+                `${AKOOL_API_URL}/avatar/getVideo/${job.akoolJobId}`,
+                { headers: { Authorization: `Bearer ${AKOOL_API_KEY}` } }
+            );
 
-                if (statusResponse.data && statusResponse.data.data) {
-                    const akoolData = statusResponse.data.data;
+            const akoolData = statusResponse.data?.data;
 
-                    if (akoolData.status === 'completed' || akoolData.video_url) {
-                        jobs.set(jobId, { ...job, status: 'completed', videoUrl: akoolData.video_url });
-                        return res.json({ status: 'completed', videoUrl: akoolData.video_url });
-                    }
+            if (akoolData?.video_url) {
+                jobs.set(jobId, {
+                    ...job,
+                    status: 'completed',
+                    videoUrl: akoolData.video_url
+                });
 
-                    if (akoolData.status === 'failed' || akoolData.status === 'error') {
-                        jobs.set(jobId, { ...job, status: 'failed', error: 'Video generation failed' });
-                        return res.json({ status: 'failed', error: 'Video generation failed' });
-                    }
-                }
-            } catch (e) {
-                console.error('Status check error:', e.message);
+                return res.json({
+                    status: 'completed',
+                    videoUrl: akoolData.video_url
+                });
             }
         }
 
@@ -175,8 +185,5 @@ app.get('/api/status/:jobId', async (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`ONRECORD API running on port ${PORT}`);
-});
-
+// ✅ VERY IMPORTANT FOR VERCEL
 module.exports = app;
