@@ -9,7 +9,7 @@ app.use(express.json());
 
 // ✅ CORS (bulletproof, works with Vercel)
 app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*'); // OK for now
+    res.setHeader('Access-Control-Allow-Origin', 'https://onrecordai.fun'); // OK for now
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
@@ -49,6 +49,14 @@ app.get('/', (req, res) => {
 // Health check
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// ✅ EXPLICIT PREFLIGHT HANDLER (CRITICAL FOR VERCEL)
+app.options('/api/generate', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', 'https://onrecordai.fun');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    return res.status(200).end();
 });
 
 // Generate video
