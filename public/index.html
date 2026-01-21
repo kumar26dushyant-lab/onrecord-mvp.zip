@@ -1,164 +1,182 @@
-<script>
-    // DOM Elements
-    const form = document.getElementById('generatorForm');
-    const generateBtn = document.getElementById('generateBtn');
-    const messageText = document.getElementById('messageText');
-    const tonePicker = document.getElementById('tonePicker');
-    const result = document.getElementById('result');
-    const resultVideo = document.getElementById('resultVideo');
-    const downloadBtn = document.getElementById('downloadBtn');
-    const statusMessage = document.getElementById('statusMessage');
-    const errorMessage = document.getElementById('errorMessage');
+require('dotenv').config();
+const express = require('express');
+const axios = require('axios');
 
-    // Form submission
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-        const text = messageText.value.trim();
-        const tone = tonePicker.value;
+// Parse JSON
+app.use(express.json());
 
-        if (!text) {
-            showError('Please enter a message');
-            return;
+// CORS - Handle manually for all requests (bulletproof method)
+app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    
+    // Handle preflight
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+    next();
+});
+
+// In-memory job storage
+const jobs = new Map();
+
+// Akool API Configuration
+const AKOOL_API_KEY = process.env.AKOOL_API_KEY;
+const AKOOL_API_URL = 'https://openapi.akool.com/api/open/v3';
+const DEFAULT_AVATAR_ID = process.env.AKOOL_AVATAR_ID || 'dvp_Tristan_cloth2_1080P';
+
+// Tone configurations
+const TONE_CONFIG = {
+    serious: { voice_id: 'en-US-GuyNeural', speed: 0.9, pitch: -2 },
+    calm: { voice_id: 'en-US-JennyNeural', speed: 0.85, pitch: 0 },
+    fake: { voice_id: 'en-US-AriaNeural', speed: 1.0, pitch: 1 }
+};
+
+function wrapMessage(text) {
+    return `This message is being sent ONRECORD.\n\n${text}\n\nThank you.`;
+}
+
+const WATERMARK_TEXT = 'ONRECORD - This message is on record.';
+
+// Root
+app.get('/', (req, res) => {
+    res.json({ message: 'ONRECORD API running', status: 'ok' });
+});
+
+// Health check
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Generate video
+app.post('/api/generate', async (req, res) => {
+    try {
+        const { text, tone = 'serious', paid = false } = req.body;
+
+        if (!text || text.trim().length === 0) {
+            return res.status(400).json({ error: 'Message text is required' });
         }
 
-        generateBtn.classList.add('loading');
-        generateBtn.disabled = true;
-        hideError();
-        hideStatus();
-        result.classList.remove('show');
+        if (text.length > 500) {
+            return res.status(400).json({ error: 'Message too long. Max 500 characters.' });
+        }
 
-        showStatus('Starting video generation...');
+        if (!AKOOL_API_KEY) {
+            return res.status(500).json({ error: 'API not configured. Contact support.' });
+        }
 
-        try {
-            // ✅ SAME-ORIGIN API CALL (NO CORS)
-            const response = await fetch('/api/generate', {
-                method: 'POST',
+        const fullScript = wrapMessage(text.trim());
+        const toneSettings = TONE_CONFIG[tone] || TONE_CONFIG.serious;
+        const jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        jobs.set(jobId, {
+            status: 'processing',
+            createdAt: new Date(),
+            paid: paid
+        });
+
+        const akoolResponse = await axios.post(
+            `${AKOOL_API_URL}/avatar/createVideoByText`,
+            {
+                avatar_id: DEFAULT_AVATAR_ID,
+                text: fullScript,
+                voice_id: toneSettings.voice_id,
+                speed: toneSettings.speed,
+                pitch: toneSettings.pitch,
+                background_color: '#1a1a1a',
+                watermark: paid ? null : {
+                    text: WATERMARK_TEXT,
+                    position: 'bottom-left',
+                    font_size: 14,
+                    color: '#ffffff',
+                    opacity: 0.8
+                }
+            },
+            {
                 headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    text: text,
-                    tone: tone,
-                    paid: false
-                })
-            });
+                    'Authorization': `Bearer ${AKOOL_API_KEY}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
 
-            const data = await response.json();
+        if (akoolResponse.data && akoolResponse.data.data) {
+            const akoolJobId = akoolResponse.data.data.id || akoolResponse.data.data._id;
+            
+            jobs.set(jobId, { ...jobs.get(jobId), akoolJobId: akoolJobId });
 
-            if (!response.ok) {
-                throw new Error(data.error || 'Failed to generate video');
+            if (akoolResponse.data.data.video_url) {
+                jobs.set(jobId, {
+                    ...jobs.get(jobId),
+                    status: 'completed',
+                    videoUrl: akoolResponse.data.data.video_url
+                });
+                return res.json({ success: true, jobId, videoUrl: akoolResponse.data.data.video_url });
             }
 
-            if (data.jobId) {
-                showStatus('Processing your video... This may take 30-60 seconds.');
-                const videoUrl = await pollForCompletion(data.jobId);
-                showResult(videoUrl);
-            } else if (data.videoUrl) {
-                showResult(data.videoUrl);
-            } else {
-                throw new Error('No video URL received');
+            return res.json({ success: true, jobId, message: 'Video generation started' });
+        }
+
+        throw new Error('Invalid response from video API');
+
+    } catch (error) {
+        console.error('Generation error:', error.response?.data || error.message);
+        return res.status(500).json({ error: 'Failed to generate video. Please try again.' });
+    }
+});
+
+// Check status
+app.get('/api/status/:jobId', async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        const job = jobs.get(jobId);
+
+        if (!job) {
+            return res.status(404).json({ error: 'Job not found' });
+        }
+
+        if (job.status === 'completed' || job.status === 'failed') {
+            return res.json({ status: job.status, videoUrl: job.videoUrl, error: job.error });
+        }
+
+        if (job.akoolJobId && AKOOL_API_KEY) {
+            try {
+                const statusResponse = await axios.get(
+                    `${AKOOL_API_URL}/avatar/getVideo/${job.akoolJobId}`,
+                    { headers: { 'Authorization': `Bearer ${AKOOL_API_KEY}` } }
+                );
+
+                if (statusResponse.data && statusResponse.data.data) {
+                    const akoolData = statusResponse.data.data;
+
+                    if (akoolData.status === 'completed' || akoolData.video_url) {
+                        jobs.set(jobId, { ...job, status: 'completed', videoUrl: akoolData.video_url });
+                        return res.json({ status: 'completed', videoUrl: akoolData.video_url });
+                    }
+
+                    if (akoolData.status === 'failed' || akoolData.status === 'error') {
+                        jobs.set(jobId, { ...job, status: 'failed', error: 'Video generation failed' });
+                        return res.json({ status: 'failed', error: 'Video generation failed' });
+                    }
+                }
+            } catch (e) {
+                console.error('Status check error:', e.message);
             }
-
-        } catch (error) {
-            console.error('Generation error:', error);
-            showError(error.message || 'Something went wrong. Please try again.');
-        } finally {
-            generateBtn.classList.remove('loading');
-            generateBtn.disabled = false;
-            hideStatus();
-        }
-    });
-
-    // Poll for video completion
-    async function pollForCompletion(jobId) {
-        const maxAttempts = 60;
-        let attempts = 0;
-
-        while (attempts < maxAttempts) {
-            attempts++;
-
-            // ✅ SAME-ORIGIN STATUS CHECK
-            const response = await fetch(`/api/status/${jobId}`);
-            const data = await response.json();
-
-            if (data.status === 'completed' && data.videoUrl) {
-                return data.videoUrl;
-            } else if (data.status === 'failed') {
-                throw new Error(data.error || 'Video generation failed');
-            }
-
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            showStatus(`Processing your video... (${attempts * 2}s)`);
         }
 
-        throw new Error('Video generation timed out. Please try again.');
+        return res.json({ status: 'processing' });
+
+    } catch (error) {
+        return res.status(500).json({ error: 'Failed to check status' });
     }
+});
 
-    function showResult(videoUrl) {
-        resultVideo.src = videoUrl;
-        downloadBtn.href = videoUrl;
-        result.classList.add('show');
-        result.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+app.listen(PORT, () => {
+    console.log(`ONRECORD API running on port ${PORT}`);
+});
 
-    function resetGenerator() {
-        messageText.value = '';
-        result.classList.remove('show');
-        resultVideo.src = '';
-        hideError();
-        hideStatus();
-        messageText.focus();
-    }
-
-    function showError(message) {
-        errorMessage.textContent = message;
-        errorMessage.classList.add('show');
-    }
-
-    function hideError() {
-        errorMessage.classList.remove('show');
-    }
-
-    function showStatus(message) {
-        statusMessage.textContent = message;
-        statusMessage.classList.add('show');
-    }
-
-    function hideStatus() {
-        statusMessage.classList.remove('show');
-    }
-
-    // Modal logic (unchanged)
-    const watchLink = document.getElementById('watchLink');
-    const modalOverlay = document.getElementById('modalOverlay');
-    const modalClose = document.getElementById('modalClose');
-    const demoVideo = document.getElementById('demoVideo');
-
-    watchLink.addEventListener('click', function() {
-        modalOverlay.classList.add('active');
-        document.body.classList.add('modal-open');
-        demoVideo.play();
-    });
-
-    function closeModal() {
-        modalOverlay.classList.remove('active');
-        document.body.classList.remove('modal-open');
-        demoVideo.pause();
-        demoVideo.currentTime = 0;
-    }
-
-    modalClose.addEventListener('click', closeModal);
-
-    modalOverlay.addEventListener('click', function(e) {
-        if (e.target === modalOverlay) {
-            closeModal();
-        }
-    });
-
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape' && modalOverlay.classList.contains('active')) {
-            closeModal();
-        }
-    });
-</script>
+module.exports = app;
