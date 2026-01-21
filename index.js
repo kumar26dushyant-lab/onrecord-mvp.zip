@@ -6,8 +6,28 @@ const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors());
+// CORS Configuration - Allow your domain
+const corsOptions = {
+    origin: [
+        'https://onrecordai.fun',
+        'http://onrecordai.fun',
+        'https://www.onrecordai.fun',
+        'http://localhost:3000',
+        'http://localhost:5500',
+        'http://127.0.0.1:5500'
+    ],
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
+};
+
+// Apply CORS middleware
+app.use(cors(corsOptions));
+
+// Handle preflight requests explicitly
+app.options('*', cors(corsOptions));
+
+// Parse JSON
 app.use(express.json());
 
 // In-memory job storage (use Redis/DB in production)
@@ -23,17 +43,17 @@ const DEFAULT_AVATAR_ID = process.env.AKOOL_AVATAR_ID || 'dvp_Tristan_cloth2_108
 // Tone configurations
 const TONE_CONFIG = {
     serious: {
-        voice_id: 'en-US-GuyNeural', // Deep, serious voice
+        voice_id: 'en-US-GuyNeural',
         speed: 0.9,
         pitch: -2
     },
     calm: {
-        voice_id: 'en-US-JennyNeural', // Calm, measured voice
+        voice_id: 'en-US-JennyNeural',
         speed: 0.85,
         pitch: 0
     },
     fake: {
-        voice_id: 'en-US-AriaNeural', // Slightly playful
+        voice_id: 'en-US-AriaNeural',
         speed: 1.0,
         pitch: 1
     }
@@ -54,6 +74,11 @@ const WATERMARK_TEXT = '⚠️ ONRECORD - This message is on record. Don\'t pani
 // Health check
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+    res.json({ message: 'ONRECORD API is running', endpoints: ['/api/health', '/api/generate', '/api/status/:jobId'] });
 });
 
 // Generate video endpoint
@@ -99,7 +124,7 @@ app.post('/api/generate', async (req, res) => {
                 voice_id: toneSettings.voice_id,
                 speed: toneSettings.speed,
                 pitch: toneSettings.pitch,
-                background_color: '#1a1a1a', // Dark neutral background
+                background_color: '#1a1a1a',
                 watermark: paid ? null : {
                     text: WATERMARK_TEXT,
                     position: 'bottom-left',
@@ -195,7 +220,6 @@ app.get('/api/status/:jobId', async (req, res) => {
                 if (statusResponse.data && statusResponse.data.data) {
                     const akoolData = statusResponse.data.data;
 
-                    // Check if completed
                     if (akoolData.status === 'completed' || akoolData.video_url) {
                         jobs.set(jobId, {
                             ...job,
@@ -209,7 +233,6 @@ app.get('/api/status/:jobId', async (req, res) => {
                         });
                     }
 
-                    // Check if failed
                     if (akoolData.status === 'failed' || akoolData.status === 'error') {
                         jobs.set(jobId, {
                             ...job,
@@ -223,7 +246,6 @@ app.get('/api/status/:jobId', async (req, res) => {
                         });
                     }
 
-                    // Still processing
                     return res.json({
                         status: 'processing',
                         progress: akoolData.progress || null
@@ -234,7 +256,6 @@ app.get('/api/status/:jobId', async (req, res) => {
             }
         }
 
-        // Default: still processing
         return res.json({
             status: 'processing'
         });
@@ -245,12 +266,11 @@ app.get('/api/status/:jobId', async (req, res) => {
     }
 });
 
-// Webhook endpoint for Akool callbacks (optional)
+// Webhook endpoint for Akool callbacks
 app.post('/api/webhook/akool', (req, res) => {
     try {
         const { id, status, video_url, error } = req.body;
 
-        // Find job by Akool ID and update
         for (const [jobId, job] of jobs.entries()) {
             if (job.akoolJobId === id) {
                 if (status === 'completed' && video_url) {
@@ -290,7 +310,6 @@ setInterval(() => {
 // Start server
 app.listen(PORT, () => {
     console.log(`ONRECORD API running on port ${PORT}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 
 module.exports = app;
