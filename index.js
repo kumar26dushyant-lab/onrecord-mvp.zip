@@ -5,14 +5,14 @@ const path = require('path');
 
 const app = express();
 
-/* ---------------- MIDDLEWARE ---------------- */
+/* ---------- MIDDLEWARE ---------- */
 
 app.use(express.json());
 
 // Serve frontend
 app.use(express.static(path.join(__dirname, 'public')));
 
-// CORS (safe)
+// CORS
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -21,7 +21,7 @@ app.use((req, res, next) => {
   next();
 });
 
-/* ---------------- APP LOGIC ---------------- */
+/* ---------- LOGIC ---------- */
 
 const jobs = new Map();
 
@@ -42,7 +42,7 @@ function wrapMessage(text) {
 
 const WATERMARK_TEXT = 'ONRECORD - This message is on record.';
 
-/* ---------------- API ROUTES ---------------- */
+/* ---------- API ---------- */
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
@@ -56,7 +56,7 @@ app.post('/api/generate', async (req, res) => {
     const jobId = `job_${Date.now()}`;
     jobs.set(jobId, { status: 'processing' });
 
-    const response = await axios.post(
+    const r = await axios.post(
       `${AKOOL_API_URL}/avatar/createVideoByText`,
       {
         avatar_id: DEFAULT_AVATAR_ID,
@@ -74,14 +74,14 @@ app.post('/api/generate', async (req, res) => {
       }
     );
 
-    const videoUrl = response.data?.data?.video_url;
+    const videoUrl = r.data?.data?.video_url;
     if (videoUrl) {
       jobs.set(jobId, { status: 'completed', videoUrl });
       return res.json({ jobId, videoUrl });
     }
 
     res.json({ jobId });
-  } catch (e) {
+  } catch {
     res.status(500).json({ error: 'Generation failed' });
   }
 });
@@ -92,13 +92,12 @@ app.get('/api/status/:jobId', (req, res) => {
   res.json(job);
 });
 
-/* ---------------- FRONTEND FALLBACK ---------------- */
+/* ---------- FRONTEND FALLBACK ---------- */
 
-// VERY IMPORTANT — this serves index.html for /
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-/* ---------------- VERCEL EXPORT ---------------- */
+/* ---------- EXPORT ---------- */
 
 module.exports = app;
