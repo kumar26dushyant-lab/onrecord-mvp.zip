@@ -7,9 +7,9 @@ const app = express();
 // Parse JSON
 app.use(express.json());
 
-// ✅ CORS (bulletproof, works with Vercel)
+// ✅ CORS — SAFE FOR SAME-ORIGIN + VERCEL
 app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', 'https://onrecordai.fun'); // OK for now
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
@@ -41,35 +41,24 @@ function wrapMessage(text) {
 
 const WATERMARK_TEXT = 'ONRECORD - This message is on record.';
 
-// Root
-app.get('/', (req, res) => {
-    res.json({ message: 'ONRECORD API running', status: 'ok' });
-});
-
-// Health check
+// ✅ HEALTH CHECK (KEEP)
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// ✅ EXPLICIT PREFLIGHT HANDLER (CRITICAL FOR VERCEL)
-app.options('/api/generate', (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', 'https://onrecordai.fun');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    return res.status(200).end();
-});
-
-// Generate video
+// ✅ GENERATE VIDEO
 app.post('/api/generate', async (req, res) => {
     try {
         const { text, tone = 'serious', paid = false } = req.body;
 
-        if (!text || text.trim().length === 0) {
+        if (!text || !text.trim()) {
             return res.status(400).json({ error: 'Message text is required' });
         }
 
         if (text.length > 500) {
-            return res.status(400).json({ error: 'Message too long. Max 500 characters.' });
+            return res
+                .status(400)
+                .json({ error: 'Message too long. Max 500 characters.' });
         }
 
         if (!AKOOL_API_KEY) {
@@ -79,7 +68,9 @@ app.post('/api/generate', async (req, res) => {
         const fullScript = wrapMessage(text.trim());
         const toneSettings = TONE_CONFIG[tone] || TONE_CONFIG.serious;
 
-        const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        const jobId = `job_${Date.now()}_${Math.random()
+            .toString(36)
+            .slice(2)}`;
 
         jobs.set(jobId, {
             status: 'processing',
@@ -115,13 +106,9 @@ app.post('/api/generate', async (req, res) => {
         );
 
         const data = akoolResponse.data?.data;
-
-        if (!data) {
-            throw new Error('Invalid Akool response');
-        }
+        if (!data) throw new Error('Invalid Akool response');
 
         const akoolJobId = data.id || data._id;
-
         jobs.set(jobId, { ...jobs.get(jobId), akoolJobId });
 
         if (data.video_url) {
@@ -143,14 +130,16 @@ app.post('/api/generate', async (req, res) => {
             jobId,
             message: 'Video generation started'
         });
-
     } catch (error) {
-        console.error('Generation error:', error.response?.data || error.message);
+        console.error(
+            'Generation error:',
+            error.response?.data || error.message
+        );
         return res.status(500).json({ error: 'Failed to generate video' });
     }
 });
 
-// Check status
+// ✅ CHECK STATUS
 app.get('/api/status/:jobId', async (req, res) => {
     try {
         const { jobId } = req.params;
@@ -167,7 +156,11 @@ app.get('/api/status/:jobId', async (req, res) => {
         if (job.akoolJobId && AKOOL_API_KEY) {
             const statusResponse = await axios.get(
                 `${AKOOL_API_URL}/avatar/getVideo/${job.akoolJobId}`,
-                { headers: { Authorization: `Bearer ${AKOOL_API_KEY}` } }
+                {
+                    headers: {
+                        Authorization: `Bearer ${AKOOL_API_KEY}`
+                    }
+                }
             );
 
             const akoolData = statusResponse.data?.data;
@@ -187,11 +180,10 @@ app.get('/api/status/:jobId', async (req, res) => {
         }
 
         return res.json({ status: 'processing' });
-
     } catch (error) {
         return res.status(500).json({ error: 'Failed to check status' });
     }
 });
 
-// ✅ VERY IMPORTANT FOR VERCEL
+// ✅ REQUIRED FOR VERCEL SERVERLESS
 module.exports = app;
