@@ -5,13 +5,14 @@ const path = require('path');
 
 const app = express();
 
-// Parse JSON
+/* ---------------- MIDDLEWARE ---------------- */
+
 app.use(express.json());
 
-// ✅ Serve frontend explicitly
+// Serve frontend
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ✅ CORS (safe)
+// CORS (safe)
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -20,7 +21,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// ---------------- API LOGIC ----------------
+/* ---------------- APP LOGIC ---------------- */
 
 const jobs = new Map();
 
@@ -41,6 +42,8 @@ function wrapMessage(text) {
 
 const WATERMARK_TEXT = 'ONRECORD - This message is on record.';
 
+/* ---------------- API ROUTES ---------------- */
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
@@ -53,7 +56,7 @@ app.post('/api/generate', async (req, res) => {
     const jobId = `job_${Date.now()}`;
     jobs.set(jobId, { status: 'processing' });
 
-    const r = await axios.post(
+    const response = await axios.post(
       `${AKOOL_API_URL}/avatar/createVideoByText`,
       {
         avatar_id: DEFAULT_AVATAR_ID,
@@ -71,7 +74,7 @@ app.post('/api/generate', async (req, res) => {
       }
     );
 
-    const videoUrl = r.data?.data?.video_url;
+    const videoUrl = response.data?.data?.video_url;
     if (videoUrl) {
       jobs.set(jobId, { status: 'completed', videoUrl });
       return res.json({ jobId, videoUrl });
@@ -89,9 +92,13 @@ app.get('/api/status/:jobId', (req, res) => {
   res.json(job);
 });
 
-// ✅ IMPORTANT: fallback for SPA
+/* ---------------- FRONTEND FALLBACK ---------------- */
+
+// VERY IMPORTANT — this serves index.html for /
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
+
+/* ---------------- VERCEL EXPORT ---------------- */
 
 module.exports = app;
