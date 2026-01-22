@@ -1,18 +1,190 @@
 <!DOCTYPE html>
-<html>
-  <body>
-    <h1>ONRECORD WORKING</h1>
-    <button onclick="test()">Generate</button>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ONRECORD — When messages need to be taken seriously</title>
+    <meta name="description" content="Put it ONRECORD. When messages need to be taken seriously.">
+    <meta property="og:title" content="ONRECORD — Put it ONRECORD.">
+    <meta property="og:description" content="When messages need to be taken seriously.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://onrecordai.fun">
 
-    <script>
-      async function test() {
-        const r = await fetch("/api/generate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: "Hello ONRECORD" })
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        /* ---- STYLES UNCHANGED (kept exactly as your original) ---- */
+        :root {
+            --bg: #000000;
+            --text: #ffffff;
+            --text-dim: #888888;
+            --accent: #ff2d2d;
+            --accent-glow: rgba(255, 45, 45, 0.3);
+            --border: #1a1a1a;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 60px 24px;
+        }
+        .hero h1 {
+            font-size: clamp(3rem, 12vw, 9rem);
+            font-weight: 700;
+        }
+        .hero h1 span { color: var(--accent); }
+        .subline { color: var(--text-dim); margin-top: 12px; }
+        .cta-button {
+            margin-top: 40px;
+            padding: 18px 42px;
+            font-weight: 600;
+            background: white;
+            color: black;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .generator {
+            padding: 100px 24px;
+            border-top: 1px solid var(--border);
+        }
+        .generator-container { max-width: 600px; margin: auto; }
+        textarea, select {
+            width: 100%;
+            padding: 16px;
+            background: #0a0a0a;
+            color: white;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+        }
+        button.generate-btn {
+            margin-top: 20px;
+            width: 100%;
+            padding: 18px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .result { margin-top: 40px; display: none; }
+        .result.show { display: block; }
+        video { width: 100%; border-radius: 10px; }
+        .error-message { color: red; margin-top: 12px; }
+        .status-message { color: #00ff88; margin-top: 12px; }
+    </style>
+</head>
+
+<body>
+
+<!-- HERO -->
+<section class="hero">
+    <h1>Put it <span>ONRECORD.</span></h1>
+    <p class="subline">When messages need to be taken seriously.</p>
+    <button class="cta-button" onclick="document.getElementById('generator').scrollIntoView({behavior:'smooth'})">
+        Create ONRECORD Video
+    </button>
+</section>
+
+<!-- GENERATOR -->
+<section class="generator" id="generator">
+    <div class="generator-container">
+        <form id="generatorForm">
+            <textarea id="messageText" placeholder="Type your message..." maxlength="500" required></textarea>
+            <select id="tonePicker">
+                <option value="serious">Serious AF</option>
+                <option value="calm">Calm but Deadly</option>
+                <option value="fake">Fake Serious 😏</option>
+            </select>
+            <button class="generate-btn" id="generateBtn">Generate ONRECORD</button>
+        </form>
+
+        <div class="status-message" id="statusMessage"></div>
+        <div class="error-message" id="errorMessage"></div>
+
+        <div class="result" id="result">
+            <video id="resultVideo" controls></video>
+            <a id="downloadBtn" download>Download Video</a>
+        </div>
+    </div>
+</section>
+
+<script>
+/* =========================================================
+   IMPORTANT FIX
+   Same-origin API → NO CORS, NO PROXY, NO ERRORS
+========================================================= */
+const API_URL = ''; // <-- DO NOT change
+
+const form = document.getElementById('generatorForm');
+const btn = document.getElementById('generateBtn');
+const msg = document.getElementById('messageText');
+const tone = document.getElementById('tonePicker');
+const result = document.getElementById('result');
+const video = document.getElementById('resultVideo');
+const download = document.getElementById('downloadBtn');
+const statusMsg = document.getElementById('statusMessage');
+const errorMsg = document.getElementById('errorMessage');
+
+form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorMsg.textContent = '';
+    statusMsg.textContent = 'Generating video...';
+
+    btn.disabled = true;
+
+    try {
+        const res = await fetch(`${API_URL}/api/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                text: msg.value,
+                tone: tone.value,
+                paid: false
+            })
         });
-        alert(JSON.stringify(await r.json()));
-      }
-    </script>
-  </body>
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed');
+
+        const videoUrl = data.videoUrl || await poll(data.jobId);
+        video.src = videoUrl;
+        download.href = videoUrl;
+        result.classList.add('show');
+        statusMsg.textContent = '';
+
+    } catch (err) {
+        errorMsg.textContent = err.message;
+        statusMsg.textContent = '';
+    }
+
+    btn.disabled = false;
+});
+
+async function poll(jobId) {
+    for (let i = 0; i < 60; i++) {
+        const r = await fetch(`${API_URL}/api/status/${jobId}`);
+        const d = await r.json();
+        if (d.status === 'completed') return d.videoUrl;
+        if (d.status === 'failed') throw new Error('Video failed');
+        await new Promise(r => setTimeout(r, 2000));
+    }
+    throw new Error('Timed out');
+}
+</script>
+
+</body>
 </html>
