@@ -1,36 +1,5 @@
 import axios from "axios";
 
-let cachedToken = null;
-let tokenExpiry = 0;
-
-async function getAkoolAccessToken() {
-  if (cachedToken && Date.now() < tokenExpiry) {
-    return cachedToken;
-  }
-
-  const tokenRes = await axios.post(
-    "https://openapi.akool.com/api/open/v1/oauth/token",
-    {
-      client_id: process.env.AKOOL_CLIENT_ID,
-      client_secret: process.env.AKOOL_CLIENT_SECRET,
-      grant_type: "client_credentials"
-    },
-    {
-      headers: { "Content-Type": "application/json" }
-    }
-  );
-
-  if (!tokenRes.data?.access_token) {
-    console.error("TOKEN RESPONSE:", tokenRes.data);
-    throw new Error("Failed to obtain AKOOL access token");
-  }
-
-  cachedToken = tokenRes.data.access_token;
-  tokenExpiry = Date.now() + (tokenRes.data.expires_in - 60) * 1000;
-
-  return cachedToken;
-}
-
 export default async function handler(req, res) {
   res.setHeader("Content-Type", "application/json");
 
@@ -49,7 +18,9 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Text is required" });
     }
 
-    const accessToken = await getAkoolAccessToken();
+    if (!process.env.AKOOL_API_KEY) {
+      return res.status(500).json({ error: "AKOOL_API_KEY missing" });
+    }
 
     const response = await axios.post(
       "https://openapi.akool.com/api/open/v3/avatar/createVideoByText",
@@ -60,22 +31,26 @@ export default async function handler(req, res) {
       },
       {
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${process.env.AKOOL_API_KEY}`,
           "Content-Type": "application/json"
         }
       }
     );
 
     const jobId = response?.data?.data?.id;
+    const videoUrl = response?.data?.data?.video_url;
 
-    if (!jobId) {
+    if (!jobId && !videoUrl) {
       console.error("AKOOL RAW RESPONSE:", response.data);
-      return res.status(500).json({ error: "AKOOL did not return jobId" });
+      return res.status(500).json({
+        error: "AKOOL did not return jobId or videoUrl"
+      });
     }
 
     return res.status(200).json({
       success: true,
-      jobId
+      jobId,
+      videoUrl
     });
 
   } catch (err) {
