@@ -8,8 +8,8 @@ async function getAkoolAccessToken() {
     return cachedToken;
   }
 
-  const res = await axios.post(
-    "https://openapi.akool.com/oauth/token",
+  const tokenRes = await axios.post(
+    "https://openapi.akool.com/api/open/v1/oauth/token",
     {
       client_id: process.env.AKOOL_CLIENT_ID,
       client_secret: process.env.AKOOL_CLIENT_SECRET,
@@ -20,8 +20,13 @@ async function getAkoolAccessToken() {
     }
   );
 
-  cachedToken = res.data.access_token;
-  tokenExpiry = Date.now() + (res.data.expires_in - 60) * 1000;
+  if (!tokenRes.data?.access_token) {
+    console.error("TOKEN RESPONSE:", tokenRes.data);
+    throw new Error("Failed to obtain AKOOL access token");
+  }
+
+  cachedToken = tokenRes.data.access_token;
+  tokenExpiry = Date.now() + (tokenRes.data.expires_in - 60) * 1000;
 
   return cachedToken;
 }
@@ -29,7 +34,6 @@ async function getAkoolAccessToken() {
 export default async function handler(req, res) {
   res.setHeader("Content-Type", "application/json");
 
-  // Health check
   if (req.method === "GET") {
     return res.status(200).json({ status: "ok" });
   }
@@ -39,18 +43,10 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { text, tone = "serious" } = req.body || {};
+    const { text } = req.body || {};
 
     if (!text) {
       return res.status(400).json({ error: "Text is required" });
-    }
-
-    if (
-      !process.env.AKOOL_CLIENT_ID ||
-      !process.env.AKOOL_CLIENT_SECRET ||
-      !process.env.AKOOL_AVATAR_ID
-    ) {
-      return res.status(500).json({ error: "Missing AKOOL env vars" });
     }
 
     const accessToken = await getAkoolAccessToken();
