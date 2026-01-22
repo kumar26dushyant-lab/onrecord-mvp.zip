@@ -1,66 +1,60 @@
 import axios from "axios";
 
 export default async function handler(req, res) {
-  // Allow only POST
+  // Always return JSON
+  res.setHeader("Content-Type", "application/json");
+
+  // ✅ Handle GET (health / sanity check)
+  if (req.method === "GET") {
+    return res.status(200).json({
+      status: "ok",
+      message: "ONRECORD generate endpoint alive"
+    });
+  }
+
+  // ❌ Block anything except POST
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
   try {
-    const { text, tone = "serious", paid = false } = req.body;
+    const { text, tone = "serious", paid = false } = req.body || {};
 
-    if (!text || text.trim().length === 0) {
-      return res.status(400).json({ error: "Text is required" });
+    if (!text || typeof text !== "string") {
+      return res.status(400).json({ error: "Message text required" });
     }
 
     if (!process.env.AKOOL_API_KEY) {
       return res.status(500).json({ error: "AKOOL_API_KEY missing" });
     }
 
-    const AKOOL_API_URL = "https://openapi.akool.com/api/open/v3";
-
     const response = await axios.post(
-      `${AKOOL_API_URL}/avatar/createVideoByText`,
+      "https://openapi.akool.com/api/open/v3/avatar/createVideoByText",
       {
-        avatar_id: process.env.AKOOL_AVATAR_ID || "ai_139_realisticbg",
-        text: `This message is being sent ONRECORD.\n\n${text}\n\nThank you.`,
-        voice_id: "en-US-GuyNeural",
-        speed: 1,
-        pitch: 0,
-        watermark: paid
-          ? null
-          : {
-              text: "ONRECORD - This message is on record",
-              position: "bottom-left",
-              font_size: 14,
-              opacity: 0.8,
-            },
+        avatar_id: process.env.AKOOL_AVATAR_ID,
+        text,
+        voice_id: "en-US-GuyNeural"
       },
       {
         headers: {
           Authorization: `Bearer ${process.env.AKOOL_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        timeout: 25000,
+          "Content-Type": "application/json"
+        }
       }
     );
 
-    const jobId =
-      response.data?.data?.id || response.data?.data?._id;
-
-    if (!jobId) {
-      return res.status(500).json({ error: "Akool did not return job ID" });
-    }
-
-    return res.json({
+    return res.status(200).json({
       success: true,
-      jobId,
+      jobId: response.data?.data?.id || null,
+      videoUrl: response.data?.data?.video_url || null
     });
+
   } catch (err) {
-    console.error("GENERATION FAILED:", err?.response?.data || err.message);
+    console.error("Generate crash:", err?.response?.data || err.message);
+
     return res.status(500).json({
       error: "Video generation failed",
-      details: err?.response?.data || err.message,
+      details: err?.response?.data || err.message
     });
   }
 }
