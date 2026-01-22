@@ -16,51 +16,52 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { text, tone = "serious", paid = false } = req.body || {};
+    const { text } = req.body || {};
 
     if (!text || typeof text !== "string") {
       return res.status(400).json({ error: "Message text required" });
     }
 
-    if (!process.env.AKOOL_API_KEY) {
-      return res.status(500).json({ error: "AKOOL_API_KEY missing" });
+    const apiKey = process.env.AKOOL_API_KEY;
+    const avatarId = process.env.AKOOL_AVATAR_ID;
+
+    if (!apiKey || !avatarId) {
+      return res.status(500).json({
+        error: "Missing AKOOL_API_KEY or AKOOL_AVATAR_ID"
+      });
     }
 
-    if (!process.env.AKOOL_AVATAR_ID) {
-      return res.status(500).json({ error: "AKOOL_AVATAR_ID missing" });
-    }
-
+    // ✅ CORRECT BASE + VERSION
     const akoolResponse = await axios.post(
-      "https://openapi.akool.com/api/open/v3/avatar/createVideoByText",
+      "https://api.akool.com/api/open/v1/avatar/text-to-video",
       {
-        avatar_id: process.env.AKOOL_AVATAR_ID,
+        avatar_id: avatarId,
         text,
-        // Akool ignores tone for now — safe to keep
-        voice_id: "en-US-GuyNeural"
+        language: "en",
       },
       {
         headers: {
-          "X-API-KEY": process.env.AKOOL_API_KEY, // ✅ CORRECT
+          "X-API-KEY": apiKey,
           "Content-Type": "application/json"
         },
         timeout: 30000
       }
     );
 
-    const data = akoolResponse.data?.data || {};
+    console.log("AKOOL RAW RESPONSE:", akoolResponse.data);
 
-    // 🔐 Validate Akool response strictly
-    if (!data.id && !data.video_url) {
-      console.error("AKOOL RAW RESPONSE:", akoolResponse.data);
+    const data = akoolResponse.data?.data;
+
+    if (!data?.task_id && !data?.video_url) {
       return res.status(500).json({
-        error: "Akool response missing jobId and videoUrl",
+        error: "Akool response missing task_id and video_url",
         akool: akoolResponse.data
       });
     }
 
     return res.status(200).json({
       success: true,
-      jobId: data.id || null,
+      jobId: data.task_id || null,
       videoUrl: data.video_url || null
     });
 
