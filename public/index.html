@@ -15,7 +15,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <style>
-        /* ---- STYLES UNCHANGED (kept exactly as your original) ---- */
+        /* ===== YOUR STYLES (UNCHANGED) ===== */
         :root {
             --bg: #000000;
             --text: #ffffff;
@@ -26,11 +26,13 @@
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
             font-family: 'Space Grotesk', sans-serif;
             background: var(--bg);
             color: var(--text);
         }
+
         .hero {
             min-height: 100vh;
             display: flex;
@@ -40,12 +42,19 @@
             text-align: center;
             padding: 60px 24px;
         }
+
         .hero h1 {
             font-size: clamp(3rem, 12vw, 9rem);
             font-weight: 700;
         }
+
         .hero h1 span { color: var(--accent); }
-        .subline { color: var(--text-dim); margin-top: 12px; }
+
+        .subline {
+            color: var(--text-dim);
+            margin-top: 12px;
+        }
+
         .cta-button {
             margin-top: 40px;
             padding: 18px 42px;
@@ -56,19 +65,27 @@
             border-radius: 8px;
             cursor: pointer;
         }
+
         .generator {
             padding: 100px 24px;
             border-top: 1px solid var(--border);
         }
-        .generator-container { max-width: 600px; margin: auto; }
+
+        .generator-container {
+            max-width: 600px;
+            margin: auto;
+        }
+
         textarea, select {
             width: 100%;
             padding: 16px;
+            margin-top: 16px;
             background: #0a0a0a;
             color: white;
             border: 1px solid var(--border);
             border-radius: 10px;
         }
+
         button.generate-btn {
             margin-top: 20px;
             width: 100%;
@@ -80,11 +97,28 @@
             font-weight: 600;
             cursor: pointer;
         }
-        .result { margin-top: 40px; display: none; }
+
+        .result {
+            margin-top: 40px;
+            display: none;
+        }
+
         .result.show { display: block; }
-        video { width: 100%; border-radius: 10px; }
-        .error-message { color: red; margin-top: 12px; }
-        .status-message { color: #00ff88; margin-top: 12px; }
+
+        video {
+            width: 100%;
+            border-radius: 10px;
+        }
+
+        .error-message {
+            color: #ff2d2d;
+            margin-top: 12px;
+        }
+
+        .status-message {
+            color: #00ff88;
+            margin-top: 12px;
+        }
     </style>
 </head>
 
@@ -94,7 +128,8 @@
 <section class="hero">
     <h1>Put it <span>ONRECORD.</span></h1>
     <p class="subline">When messages need to be taken seriously.</p>
-    <button class="cta-button" onclick="document.getElementById('generator').scrollIntoView({behavior:'smooth'})">
+    <button class="cta-button"
+        onclick="document.getElementById('generator').scrollIntoView({behavior:'smooth'})">
         Create ONRECORD Video
     </button>
 </section>
@@ -103,13 +138,21 @@
 <section class="generator" id="generator">
     <div class="generator-container">
         <form id="generatorForm">
-            <textarea id="messageText" placeholder="Type your message..." maxlength="500" required></textarea>
+            <textarea
+                id="messageText"
+                placeholder="Type your message..."
+                maxlength="500"
+                required></textarea>
+
             <select id="tonePicker">
                 <option value="serious">Serious AF</option>
                 <option value="calm">Calm but Deadly</option>
                 <option value="fake">Fake Serious 😏</option>
             </select>
-            <button class="generate-btn" id="generateBtn">Generate ONRECORD</button>
+
+            <button class="generate-btn" id="generateBtn">
+                Generate ONRECORD
+            </button>
         </form>
 
         <div class="status-message" id="statusMessage"></div>
@@ -117,17 +160,17 @@
 
         <div class="result" id="result">
             <video id="resultVideo" controls></video>
-            <a id="downloadBtn" download>Download Video</a>
+            <a id="downloadBtn" download="onrecord.mp4">Download Video</a>
         </div>
     </div>
 </section>
 
 <script>
-/* =========================================================
-   IMPORTANT FIX
-   Same-origin API → NO CORS, NO PROXY, NO ERRORS
-========================================================= */
-const API_URL = ''; // <-- DO NOT change
+/* =====================================================
+   ✅ SAME-ORIGIN API (CRITICAL)
+   Vercel will serve /api/generate automatically
+===================================================== */
+const API_URL = ''; // DO NOT CHANGE
 
 const form = document.getElementById('generatorForm');
 const btn = document.getElementById('generateBtn');
@@ -141,48 +184,63 @@ const errorMsg = document.getElementById('errorMessage');
 
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
+
     errorMsg.textContent = '';
     statusMsg.textContent = 'Generating video...';
-
     btn.disabled = true;
 
     try {
-        const res = await fetch(`${API_URL}/api/generate`, {
+        const res = await fetch('/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                text: msg.value,
+                text: msg.value.trim(),
                 tone: tone.value,
                 paid: false
             })
         });
 
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed');
+        // 🔑 IMPORTANT: ensure JSON
+        const contentType = res.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            throw new Error('Server did not return JSON');
+        }
 
-        const videoUrl = data.videoUrl || await poll(data.jobId);
+        const data = await res.json();
+
+        if (!res.ok) {
+            throw new Error(data.error || 'Generation failed');
+        }
+
+        const videoUrl = data.videoUrl
+            ? data.videoUrl
+            : await pollStatus(data.jobId);
+
         video.src = videoUrl;
         download.href = videoUrl;
         result.classList.add('show');
         statusMsg.textContent = '';
 
     } catch (err) {
+        console.error(err);
         errorMsg.textContent = err.message;
         statusMsg.textContent = '';
+    } finally {
+        btn.disabled = false;
     }
-
-    btn.disabled = false;
 });
 
-async function poll(jobId) {
+async function pollStatus(jobId) {
     for (let i = 0; i < 60; i++) {
-        const r = await fetch(`${API_URL}/api/status/${jobId}`);
+        const r = await fetch(`/api/status/${jobId}`);
         const d = await r.json();
+
         if (d.status === 'completed') return d.videoUrl;
-        if (d.status === 'failed') throw new Error('Video failed');
-        await new Promise(r => setTimeout(r, 2000));
+        if (d.status === 'failed') throw new Error('Video generation failed');
+
+        await new Promise(res => setTimeout(res, 2000));
     }
-    throw new Error('Timed out');
+    throw new Error('Video generation timed out');
 }
 </script>
 
